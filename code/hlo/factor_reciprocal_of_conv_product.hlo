@@ -1,0 +1,14 @@
+HloModule factor_reciprocal_of_conv_product
+
+ENTRY main {
+  a = f32[1,16,16,8] parameter(0)
+  b = f32[3,3,8,8] parameter(1)
+  c = f32[1,14,14,8] parameter(2)
+  x = f32[1,14,14,8] convolution(a, b), window={size=3x3}, dim_labels=b01f_01io->b01f
+  one = f32[] constant(1)
+  ones = f32[1,14,14,8] broadcast(one), dimensions={}
+  r = f32[1,14,14,8] divide(ones, x)
+  xc = f32[1,14,14,8] multiply(x, c)
+  d = f32[1,14,14,8] divide(ones, xc)
+  ROOT p = f32[1,14,14,8] multiply(r, d)
+}

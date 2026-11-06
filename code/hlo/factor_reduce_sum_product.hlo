@@ -1,0 +1,19 @@
+HloModule factor_reduce_sum_product
+
+add {
+  p0 = f32[] parameter(0)
+  p1 = f32[] parameter(1)
+  ROOT s = f32[] add(p0, p1)
+}
+
+ENTRY main {
+  a = f32[256,256] parameter(0)
+  b = f32[256,256] parameter(1)
+  c = f32[256,256] parameter(2)
+  zero = f32[] constant(0)
+  r = f32[256] reduce(b, zero), dimensions={1}, to_apply=add
+  s = f32[256,256] broadcast(r), dimensions={0}
+  x = f32[256,256] multiply(a, s)
+  y = f32[256,256] multiply(s, c)
+  ROOT p = f32[256,256] multiply(x, y)
+}

@@ -1,0 +1,11 @@
+HloModule dist_div_scalar
+
+ENTRY main {
+  x = f32[256,256] parameter(0)
+  z = f32[256,256] parameter(1)
+  y = f32[] parameter(2)
+  by = f32[256,256] broadcast(y), dimensions={}
+  d0 = f32[256,256] divide(x, by)
+  d1 = f32[256,256] divide(z, by)
+  ROOT r = f32[256,256] add(d0, d1)
+}

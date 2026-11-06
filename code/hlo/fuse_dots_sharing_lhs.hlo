@@ -1,0 +1,10 @@
+HloModule fuse_dots_sharing_lhs
+
+ENTRY main {
+  a = f32[128,256] parameter(0)
+  b = f32[256,64] parameter(1)
+  c = f32[256,64] parameter(2)
+  x = f32[128,64] dot(a, b), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  y = f32[128,64] dot(a, c), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+  ROOT t = (f32[128,64], f32[128,64]) tuple(x, y)
+}

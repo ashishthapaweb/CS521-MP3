@@ -1,0 +1,11 @@
+HloModule factor_square_minus_product
+
+ENTRY main {
+  a = f32[256,256] parameter(0)
+  b = f32[256,256] parameter(1)
+  c = f32[256,256] parameter(2)
+  s = f32[256,256] add(a, b)
+  x = f32[256,256] multiply(s, s)
+  y = f32[256,256] multiply(s, c)
+  ROOT r = f32[256,256] subtract(x, y)
+}
