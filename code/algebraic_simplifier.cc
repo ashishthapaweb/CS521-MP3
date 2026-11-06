@@ -4053,9 +4053,13 @@ absl::Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
               dot->precision_config().algorithm()) {
         continue;
       }
-      // B must not depend on `other`, or concatenate(B, C) would make a cycle.
+      // Neither B nor `dot` itself (through a control edge) may depend on
+      // `other`, or the fused dot would make a cycle.
       bool cycle = false;
       std::vector<const HloInstruction*> stack = {rhs};
+      for (const HloInstruction* p : dot->control_predecessors()) {
+        stack.push_back(p);
+      }
       absl::flat_hash_set<const HloInstruction*> seen;
       while (!stack.empty() && !cycle) {
         const HloInstruction* cur = stack.back();

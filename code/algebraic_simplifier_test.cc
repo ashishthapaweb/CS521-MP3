@@ -190,6 +190,30 @@ TEST_F(AlgebraicSimplifierTest, FuseDotsSharingLhsNotAppliedOnCycle) {
                   m::Dot(m::Parameter(0), m::Exp(m::Dot())))));
 }
 
+// Test that the dots are not fused when y = dot(A, C) has a control edge from
+// x = dot(A, B), since the fused dot would then depend on itself (a cycle).
+TEST_F(AlgebraicSimplifierTest, FuseDotsSharingLhsNotAppliedOnControlEdge) {
+  const char* kModuleStr = R"(
+    HloModule m
+    ENTRY e {
+      a = f32[4,8] parameter(0)
+      b = f32[8,3] parameter(1)
+      c = f32[8,5] parameter(2)
+      x = f32[4,3] dot(a, b), lhs_contracting_dims={1}, rhs_contracting_dims={0}
+      y = f32[4,5] dot(a, c), lhs_contracting_dims={1}, rhs_contracting_dims={0}, control-predecessors={x}
+      ROOT t = (f32[4,3], f32[4,5]) tuple(x, y)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
+  AlgebraicSimplifier(default_options_).Run(m.get()).value();
+  const HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(root,
+              GmockMatch(m::Tuple(m::Dot(m::Parameter(0), m::Parameter(1)),
+                                  m::Dot(m::Parameter(0), m::Parameter(2)))));
+  // The control edge x -> y is kept.
+  EXPECT_THAT(root->operand(1)->control_predecessors(),
+              ElementsAre(root->operand(0)));
+}
+
 // MP3 Part 2, Rule 2: S*S - C*S => S*(S - C) with S = A + B.
 TEST_F(AlgebraicSimplifierTest, FactorSquareMinusProduct) {
   const char* kModuleStr = R"(
