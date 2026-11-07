@@ -6545,6 +6545,35 @@ absl::Status AlgebraicSimplifierVisitor::HandleReshape(
   if (HloInstruction* bitcast_operand =
           BitcastingOperandOfReshapeOrCopyChain(reshape, options_)) {
     ReplaceWithBitcast(reshape, bitcast_operand);
+    return absl::OkStatus();
+  }
+
+  // MP3 Part 3: the reshape is not a bitcast, so split it into a bitcast
+  // (free relabel) and copies (physical transposes).
+  VLOG(10) << "trying transform [reshape(x) => bitcast/copy decomposition]";
+  if (options_.is_layout_sensitive() &&
+      options_.enable_reshape_decomposition() &&
+      LayoutUtil::HasLayout(reshape->shape()) &&
+      LayoutUtil::HasLayout(operand->shape())) {
+    const Shape& s = reshape->shape();    // output shape
+    const Shape& s0 = operand->shape();   // input shape
+    HloInstruction* result;
+    if (std::optional<Shape> in = ShapeUtil::AlignLayouts(s, s0)) {
+      // reshape(x) => bitcast(copy(x)): transpose the input first.
+      result = MakeBitcastHlo(MakeCopyHlo(operand, *in), s);
+    } else if (std::optional<Shape> out = ShapeUtil::AlignLayouts(s0, s)) {
+      // reshape(x) => copy(bitcast(x)): transpose the output after.
+      result = MakeCopyHlo(MakeBitcastHlo(operand, *out), s);
+    } else {
+      // reshape(x) => copy(bitcast(copy(x))): go through row-major layouts.
+      Shape s0_row = ShapeUtil::MakeShapeWithDescendingLayout(
+          s0.element_type(), s0.dimensions());
+      Shape s_row = ShapeUtil::MakeShapeWithDescendingLayout(
+          s.element_type(), s.dimensions());
+      result = MakeCopyHlo(
+          MakeBitcastHlo(MakeCopyHlo(operand, s0_row), s_row), s);
+    }
+    return ReplaceInstruction(reshape, result);
   }
   return absl::OkStatus();
 }

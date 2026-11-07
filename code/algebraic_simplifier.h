@@ -91,7 +91,18 @@ class AlgebraicSimplifierOptions {
     is_layout_sensitive_ = is_layout_sensitive;
   }
 
+  // MP3 Part 3: split a reshape that is not a bitcast into bitcast + copy
+  // (physical transpose), like ReshapeDecomposer. Needs is_layout_sensitive.
+  void set_enable_reshape_decomposition(bool enable) {
+    enable_reshape_decomposition_ = enable;
+  }
+  bool enable_reshape_decomposition() const {
+    return enable_reshape_decomposition_;
+  }
+
   bool is_layout_sensitive() const { return is_layout_sensitive_; }
+
+  bool enable_reshape_decomposition_{false};
 
   void set_use_associative_reordering(bool use_associative_reordering) {
     use_associative_reordering_ = use_associative_reordering;

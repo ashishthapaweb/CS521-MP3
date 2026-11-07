@@ -526,6 +526,78 @@ TEST_F(AlgebraicSimplifierTest, PrecisionFactorReduceSumProduct) {
   RunPrecisionExperiment("Rule 4", kHlo, default_options_, 0.0, 1.0, 30);
 }
 
+// Layout {0,1} stores a f32[2,3] column by column. To read it as f32[6] in
+// row-major order, the input is copied to row-major first; the reshape is
+// then a bitcast.
+TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeCopyInput) {
+  const char* kModuleStr = R"(
+    HloModule m
+    ENTRY e {
+      p = f32[2,3]{0,1} parameter(0)
+      ROOT r = f32[6]{0} reshape(p)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_is_layout_sensitive(true);
+  options.set_enable_reshape_decomposition(true);
+  ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  const HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Bitcast(m::Copy(m::Parameter(0)))));
+  EXPECT_EQ(root->operand(0)->shape().layout(), LayoutUtil::MakeLayout({1, 0}));
+}
+
+// The input is a bitcast of a row-major f32[2,3]; the copy then transposes
+// it into the requested {0,1} layout.
+TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeCopyOutput) {
+  const char* kModuleStr = R"(
+    HloModule m
+    ENTRY e {
+      p = f32[6]{0} parameter(0)
+      ROOT r = f32[2,3]{0,1} reshape(p)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_is_layout_sensitive(true);
+  options.set_enable_reshape_decomposition(true);
+  ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  const HloInstruction* root = m->entry_computation()->root_instruction();
+  EXPECT_THAT(root, GmockMatch(m::Copy(m::Bitcast(m::Parameter(0)))));
+  EXPECT_EQ(root->operand(0)->shape().layout(), LayoutUtil::MakeLayout({1, 0}));
+}
+
+// Neither side can be aligned, so both are copied through row-major layouts.
+TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeTwoCopies) {
+  const char* kModuleStr = R"(
+    HloModule m
+    ENTRY e {
+      p = f32[2,3]{0,1} parameter(0)
+      ROOT r = f32[3,2]{0,1} reshape(p)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_is_layout_sensitive(true);
+  options.set_enable_reshape_decomposition(true);
+  ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
+  EXPECT_THAT(m->entry_computation()->root_instruction(),
+              GmockMatch(m::Copy(m::Bitcast(m::Copy(m::Parameter(0))))));
+}
+
+// Without the option, the reshape is left alone.
+TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeNotAppliedByDefault) {
+  const char* kModuleStr = R"(
+    HloModule m
+    ENTRY e {
+      p = f32[2,3]{0,1} parameter(0)
+      ROOT r = f32[6]{0} reshape(p)
+    })";
+  TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
+  AlgebraicSimplifierOptions options = default_options_;
+  options.set_is_layout_sensitive(true);
+  AlgebraicSimplifier(options).Run(m.get()).value();
+  EXPECT_THAT(m->entry_computation()->root_instruction(),
+              GmockMatch(m::Reshape(m::Parameter(0))));
+}
+
 // Test that the result of particular operations is always non-negative
 TEST_F(AlgebraicSimplifierTest, IsNonNegative_Op) {
   for (const auto* op : non_neg_ops) {
