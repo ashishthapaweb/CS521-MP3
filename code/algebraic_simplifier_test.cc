@@ -539,7 +539,6 @@ TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeCopyInput) {
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
   AlgebraicSimplifierOptions options = default_options_;
   options.set_is_layout_sensitive(true);
-  options.set_enable_reshape_decomposition(true);
   ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
   const HloInstruction* root = m->entry_computation()->root_instruction();
   EXPECT_THAT(root, GmockMatch(m::Bitcast(m::Copy(m::Parameter(0)))));
@@ -558,7 +557,6 @@ TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeCopyOutput) {
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
   AlgebraicSimplifierOptions options = default_options_;
   options.set_is_layout_sensitive(true);
-  options.set_enable_reshape_decomposition(true);
   ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
   const HloInstruction* root = m->entry_computation()->root_instruction();
   EXPECT_THAT(root, GmockMatch(m::Copy(m::Bitcast(m::Parameter(0)))));
@@ -576,14 +574,13 @@ TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeTwoCopies) {
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
   AlgebraicSimplifierOptions options = default_options_;
   options.set_is_layout_sensitive(true);
-  options.set_enable_reshape_decomposition(true);
   ASSERT_TRUE(AlgebraicSimplifier(options).Run(m.get()).value());
   EXPECT_THAT(m->entry_computation()->root_instruction(),
               GmockMatch(m::Copy(m::Bitcast(m::Copy(m::Parameter(0))))));
 }
 
-// Without the option, the reshape is left alone.
-TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeNotAppliedByDefault) {
+// When the simplifier is not layout sensitive, the reshape is left alone.
+TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeNotAppliedWithoutLayouts) {
   const char* kModuleStr = R"(
     HloModule m
     ENTRY e {
@@ -592,7 +589,7 @@ TEST_F(AlgebraicSimplifierTest, ReshapeDecomposeNotAppliedByDefault) {
     })";
   TF_ASSERT_OK_AND_ASSIGN(auto m, ParseAndReturnVerifiedModule(kModuleStr));
   AlgebraicSimplifierOptions options = default_options_;
-  options.set_is_layout_sensitive(true);
+  options.set_is_layout_sensitive(false);
   AlgebraicSimplifier(options).Run(m.get()).value();
   EXPECT_THAT(m->entry_computation()->root_instruction(),
               GmockMatch(m::Reshape(m::Parameter(0))));
@@ -4696,11 +4693,12 @@ TEST_F(AlgebraicSimplifierTest, ReshapeReplacedWithBitcast) {
   AlgebraicSimplifier simplifier(options);
   simplifier.Run(m.get()).value();
 
-  // Verify that only the first reshape is replaced.
+  // Bitcasting the first reshape and splitting the other two by Part 3 rule
   EXPECT_THAT(
       computation->root_instruction(),
-      GmockMatch(m::Tuple(m::Bitcast(), m::Op().Is(dimensions_wrong_reshape),
-                          m::Op().Is(layout_wrong_reshape))));
+      GmockMatch(m::Tuple(m::Bitcast(m::Parameter(0)),
+                          m::Bitcast(m::Copy(m::Parameter(0))),
+                          m::Bitcast(m::Copy(m::Parameter(0))))));
 }
 
 // Regression test for a bug where if we failed to sink a reshape, we'd set the

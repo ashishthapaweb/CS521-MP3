@@ -6552,26 +6552,45 @@ absl::Status AlgebraicSimplifierVisitor::HandleReshape(
   // (free relabel) and copies (physical transposes).
   VLOG(10) << "trying transform [reshape(x) => bitcast/copy decomposition]";
   if (options_.is_layout_sensitive() &&
-      options_.enable_reshape_decomposition() &&
       LayoutUtil::HasLayout(reshape->shape()) &&
       LayoutUtil::HasLayout(operand->shape())) {
     const Shape& s = reshape->shape();    // output shape
     const Shape& s0 = operand->shape();   // input shape
-    HloInstruction* result;
+    Shape from, to;
+    enum { kCopyInput, kCopyOutput, kTwoCopies } kind;
     if (std::optional<Shape> in = ShapeUtil::AlignLayouts(s, s0)) {
       // reshape(x) => bitcast(copy(x)): transpose the input first.
-      result = MakeBitcastHlo(MakeCopyHlo(operand, *in), s);
+      kind = kCopyInput;
+      from = *in;
+      to = s;
     } else if (std::optional<Shape> out = ShapeUtil::AlignLayouts(s0, s)) {
       // reshape(x) => copy(bitcast(x)): transpose the output after.
-      result = MakeCopyHlo(MakeBitcastHlo(operand, *out), s);
+      kind = kCopyOutput;
+      from = s0;
+      to = *out;
     } else {
       // reshape(x) => copy(bitcast(copy(x))): go through row-major layouts.
-      Shape s0_row = ShapeUtil::MakeShapeWithDescendingLayout(
-          s0.element_type(), s0.dimensions());
-      Shape s_row = ShapeUtil::MakeShapeWithDescendingLayout(
-          s.element_type(), s.dimensions());
-      result = MakeCopyHlo(
-          MakeBitcastHlo(MakeCopyHlo(operand, s0_row), s_row), s);
+      kind = kTwoCopies;
+      from = ShapeUtil::MakeShapeWithDescendingLayout(s0.element_type(),
+                                                      s0.dimensions());
+      to = ShapeUtil::MakeShapeWithDescendingLayout(s.element_type(),
+                                                    s.dimensions());
+    }
+    // Rewriting only if the backend accepts the new bitcast
+    if (!options_.ReshapeIsBitcast(from, to)) {
+      return absl::OkStatus();
+    }
+    HloInstruction* result;
+    switch (kind) {
+      case kCopyInput:
+        result = MakeBitcastHlo(MakeCopyHlo(operand, from), to);
+        break;
+      case kCopyOutput:
+        result = MakeCopyHlo(MakeBitcastHlo(operand, to), s);
+        break;
+      case kTwoCopies:
+        result = MakeCopyHlo(MakeBitcastHlo(MakeCopyHlo(operand, from), to), s);
+        break;
     }
     return ReplaceInstruction(reshape, result);
   }
